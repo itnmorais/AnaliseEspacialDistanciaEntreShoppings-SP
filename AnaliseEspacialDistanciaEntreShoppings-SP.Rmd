@@ -1,0 +1,232 @@
+---
+title: "MBA USP/ESALQ: Análise Espacial Distância entre Shoppings-SP"
+author: "Italo Nogueira Morais"
+date: "09/05/2022"
+output: html_notebook
+---
+
+1- INSTALAÇÃO E CARREGAMENTO DOS PACOTES NECESSÁRIOS
+```{r}
+pacotes <- c("tidyverse","sf","tmap","rgdal","rgeos","adehabitatHR","knitr",
+             "kableExtra")
+
+if(sum(as.numeric(!pacotes %in% installed.packages())) != 0){
+  instalador <- pacotes[!pacotes %in% installed.packages()]
+  for(i in 1:length(instalador)) {
+    install.packages(instalador, dependencies = T)
+    break()}
+  sapply(pacotes, require, character = T) 
+} else {
+  sapply(pacotes, require, character = T) 
+}
+```
+
+
+2- CRIANDO UM OBJETO SIMPLE FEATURE (SF) A PARTIR DA BASE DE DADOS SHOPPINGS
+
+Carregando a Base de dados shoppings:
+```{r}
+load("shoppings.RData")
+```
+
+Analisando a classe do objeto shoppings:
+```{r}
+class(shoppings)
+```
+
+Observando as variáveis da Base de dados shoppings:
+```{r}
+shoppings %>%
+  kable() %>%
+  kable_styling(bootstrap_options = "striped",
+                full_width = TRUE,
+                font_size = )
+```
+
+Criando um objeto do tipo sf a partir do date frame shoppings:
+
+crs - sistema de referência de coordenadas
+```{r}
+sf_shoppings <- st_as_sf(x = shoppings,
+                         coords = c("longitude", "latitude"),
+                         crs = 4326)
+```
+
+Analisando a classe do objeto sf_shoppings:
+```{r}
+class(sf_shoppings)
+```
+
+Plotando o objeto sf de forma espacial:
+
+(Utilização do pacote tmap)
+```{r}
+tm_shape(shp = sf_shoppings) + 
+  tm_dots(size = 1)
+```
+
+Adicionando uma camada de um mapa do Leafleet
+```{r}
+tmap_mode("view")
+
+tm_shape(shp = sf_shoppings) + 
+  tm_dots(col = "deepskyblue4",
+          border.col = "black",
+          size = 0.2,
+          alpha = 0.8)
+  
+```
+
+3- COMBINANDO UM OBJETO SIMPLE FEATURE COM UM SHAPEFILE
+
+Carregando um shapefile do município de São Paulo:
+```{r}
+shp_saopaulo <- readOGR("shapefile_municipio", "municipio_sp")
+```
+
+Visualização do shapefile de São Paulo:
+```{r}
+tm_shape(shp = shp_saopaulo) + 
+  tm_borders()
+```
+
+Combinando o objeto shp_saopaulo com o sf_shoppings
+```{r}
+tm_shape(shp = shp_saopaulo) + 
+  tm_borders(alpha = 0.5) + 
+  tm_shape(shp = sf_shoppings)+
+  tm_dots(col = "regiao",
+          size = 0.2)
+  
+```
+
+
+4- BUFFER ANALYSIS
+
+O buffering é uma técnica utilizada para medir distâncias para fora de um dado ponto
+geográfico. A aplicação da técnica será feita por meio da função gBuffer(), do pacote rgeos.
+
+A função gBuffer não funciona com objetos do tipo simple feature. Portanto, para utilizá-la,
+iremos converter o objeto sf_shoppings para um objeto do tipo spatial points (sp).
+
+Convertendo sf_shoppings para objeto do tipo sp:
+
+a- Isolando as coordenadas do date frame original:
+```{r}
+coord_shoppings <- cbind(shoppings$longitude,
+                         shoppings$latitude)
+```
+
+b- Criando o objeto sp:
+```{r}
+sp_shoppings <- SpatialPoints(coords = coord_shoppings,
+                              proj4string = CRS("+proj=longlat"))
+```
+
+Visualizando o resultado:
+```{r}
+tmap_mode("plot")
+
+tm_shape(shp = sp_shoppings) + 
+  tm_dots(size = 1)
+```
+
+Além de exigir um objeto da classe sp, a função gBuffer() exige também que o objeto se oriente por distâncias euclidianas. O objeto atual se orienta de forma geodésica. Vamos tranformá-lo:
+
+```{r}
+shopping_UTM <- spTransform(x = sp_shoppings,
+                            CRSobj = CRS("+init=epsg:22523"))
+```
+
+ Agora, podemos aplicar a função gBuffer():
+```{r}
+buffer_shoppings <- gBuffer(spgeom = shopping_UTM,
+                            width = 1500,
+                            byid = TRUE)
+```
+ 
+ Plotando buffer_shoppings:
+```{r}
+tmap_mode("view")
+
+tm_shape(shp = buffer_shoppings) +
+  tm_borders()
+```
+ 
+ Combinando os objetos shp_saopaulo, sf_shoppings e buffer_shoppings:
+
+```{r}
+tm_shape(shp = shp_saopaulo) + 
+  tm_borders(alpha = 0.5) + 
+  tm_shape(shp = sf_shoppings)+
+  tm_dots(col = "regiao",
+          size = 0.2) +
+  tm_shape(shp = buffer_shoppings) +
+  tm_borders(col = "black")
+```
+
+5- BUFFER UNION
+
+A técnica de buffer union combina os outputs da técnica de buffering que, por ventura, se encontrem.
+```{r}
+buffer_union <- gUnaryUnion(spgeom = buffer_shoppings)
+
+tm_shape(shp = shp_saopaulo) + 
+  tm_borders(alpha = 0.5) + 
+  tm_shape(shp = sf_shoppings)+
+  tm_dots(col = "regiao",
+          size = 0.2) +
+  tm_shape(shp = buffer_shoppings) +
+  tm_borders(col = "black") + 
+  tm_fill(col = "red",
+          alpha = 0.3)
+```
+
+6- Kernel Densities
+
+A técnica de kernel densities calcula a densidade da presença de pontos de interesse em determina área geográfica.
+
+a- Precisaremos criar um objeto sp com a base de dados atrelada a ele:
+
+```{r}
+shoppings_sp_df <- SpatialPointsDataFrame(data = shoppings,
+                                          coords = coord_shoppings,
+                                          proj4string = CRS("+proj=longlat"))
+```
+
+b- Para cálculo das kernel densities, iremos utilizar a função kernelUD():
+```{r}
+shoppings_dens <- kernelUD(xy = shoppings_sp_df,
+                           h = "href",
+                           grid = 1000,
+                           boundary = NULL)
+plot(shoppings_dens)
+```
+
+c- Para estabelecer as zonas com maior densidade, propomos o seguinte:
+
+```{r}
+zona1 <- getverticeshr(x = shoppings_dens, percent = 20)
+zona2 <- getverticeshr(x = shoppings_dens, percent = 40)
+zona3 <- getverticeshr(x = shoppings_dens, percent = 60)
+zona4 <- getverticeshr(x = shoppings_dens, percent = 80)
+
+tmap_options(check.and.fix = TRUE)
+
+tm_shape(shp = shp_saopaulo) + 
+  tm_fill(col = "gray90") + 
+  tm_borders(col = "white", alpha = 0.5) + 
+  tm_shape(shp = shoppings_sp_df) + 
+  tm_dots(col = "regiao", size = 0.25) + 
+  tm_shape(zona1) + 
+  tm_borders(col = "firebrick4", lwd = 2.5) +
+  tm_fill(alpha = 0.4, col = "firebrick4") + 
+  tm_shape(zona2) + 
+  tm_borders(col = "firebrick3", lwd = 2.5) + 
+  tm_fill(alpha = 0.3, col = "firebrick3") + 
+  tm_shape(zona3) + 
+  tm_borders(col = "firebrick2", lwd = 2.5) + 
+  tm_fill(alpha = 0.2, col = "firebrick2") +
+  tm_shape(zona4) + 
+  tm_borders(col = "firebrick1", lwd = 2.5) + 
+  tm_fill(alpha = 0.1, col = "firebrick1")
