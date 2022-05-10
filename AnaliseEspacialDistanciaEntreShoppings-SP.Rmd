@@ -1,8 +1,10 @@
 ---
-title: "MBA USP/ESALQ: Análise Espacial Distância entre Shoppings-SP"
+title: 'MBA USP/ESALQ: Análise Espacial Distância entre Shoppings-SP'
 author: "Italo Nogueira Morais"
 date: "09/05/2022"
-output: html_notebook
+output:
+  html_document:
+    df_print: paged
 ---
 
 1- INSTALAÇÃO E CARREGAMENTO DOS PACOTES NECESSÁRIOS
